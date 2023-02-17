@@ -2,9 +2,9 @@ evans \
 ./api/auth_service.proto \
 -p 8086
 
-show package
-show message
-show service
+show package \
+show message \
+show service \
 show header
 
 package pb
