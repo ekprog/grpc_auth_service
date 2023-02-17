@@ -1,32 +1,20 @@
 syntax = "proto3";
 
-option go_package = "api_gw/pb";
+option go_package = "pb/api";
 
-import "google/api/annotations.proto";
-import "api/app.proto";
-import "api/message.proto";
+import "api/auth_delivery.proto";
 
 package pb;
 
 // The service definition
 service AuthService {
+  rpc Register (RegisterRequest) returns (RegisterResponse) {}
 
-  rpc Register (RegisterRequest) returns (GenericResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/auth/register",
-    };
-  }
+  rpc Login (LoginRequest) returns (LoginResponse) {}
 
-  rpc Login (LoginRequest) returns (LoginResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/auth/login"
-    };
-  }
+  rpc Revoke (RevokeRequest) returns (RevokeResponse) {}
 
-  rpc Verify (VerifyRequest) returns (VerifyResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/auth/verify"
-    };
-  }
+  rpc Verify (VerifyRequest) returns (VerifyResponse) {}
 
+  rpc Refresh (RefreshRequest) returns (RefreshResponse) {}
 }

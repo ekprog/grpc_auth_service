@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"time"
+)
+
+// Models
 
 type User struct {
 	Id        int64     `json:"id"`
@@ -11,13 +15,17 @@ type User struct {
 }
 
 type UserToken struct {
-	Id        int64     `json:"id"`
-	UserId    int64     `json:"user_id"`
-	Token     string    `json:"token"`
-	IsValid   bool      `json:"is_valid"`
+	Id                    int64     `json:"id"`
+	PairUUID              string    `json:"pair_uuid"`
+	UserId                int64     `json:"user_id"`
+	AccessToken           string    `json:"access_token"`
+	RefreshToken          string    `json:"refresh_token"`
+	IsValid               bool      `json:"is_valid_access_token"`
+	AccessTokenExpiredAt  time.Time `json:"access_token_expired_at"`
+	RefreshTokenExpiredAt time.Time `json:"refresh_token_expired_at"`
+
 	UpdatedAt time.Time `json:"updated_at"`
 	CreatedAt time.Time `json:"created_at"`
-	ExpiredAt time.Time `json:"expired_at"`
 }
 
 type UsersRepository interface {
@@ -29,13 +37,40 @@ type UsersRepository interface {
 
 type UserTokensRepository interface {
 	Insert(*UserToken) error
-	FindValid(string) (*UserToken, error)
-	Revoke(string) error
-	UpdateTime(string) error
+	FindValidPair(pairUUID string) (*UserToken, error)
+	RevokePair(pairUUID string) error
+	UpdateTime(pairUUID string) error
 }
 
 type AuthInteractor interface {
-	Register(username, password string) error
-	Login(username, password string) (*UserToken, error)
-	ValidateAndExtract(token string) (*User, error)
+	Register(username, password string) (RegisterResponse, error)
+	Login(username, password string) (LoginResponse, error)
+	Revoke(token string) (RevokeResponse, error)
+	RefreshToken(token string) (RefreshTokenResponse, error)
+	Extract(token string) (ExtractResponse, error)
+}
+
+// Responses
+
+type RegisterResponse struct {
+	StatusCode string
+}
+
+type LoginResponse struct {
+	StatusCode string
+	UserToken  *UserToken
+}
+
+type RevokeResponse struct {
+	StatusCode string
+}
+
+type RefreshTokenResponse struct {
+	StatusCode string
+	UserToken  *UserToken
+}
+
+type ExtractResponse struct {
+	StatusCode string
+	User       *User
 }

@@ -1,7 +1,7 @@
 {
   "swagger": "2.0",
   "info": {
-    "title": "api/app.proto",
+    "title": "api/auth_message.proto",
     "version": "version not set"
   },
   "consumes": [

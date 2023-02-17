@@ -16,10 +16,5 @@ func InitApp(rootDir ...string) error {
 		return err
 	}
 
-	err = initLogs(basePath)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }

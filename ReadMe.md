@@ -1,11 +1,17 @@
-evans ./proto/helloworld.proto -p 8081
-
 evans \
-./proto/api/app.proto \
-./proto/api/register.proto \
-./proto/api/user.proto \
-./proto/api/auth_service.proto \
+./api/auth_service.proto \
 -p 8086
+
+show package
+show message
+show service
+show header
+
+package pb
+service AuthService
+call Register
+call --repeat Register
+
 
 protoc -I ./proto \
 --go_out ./pkg/pb \
@@ -23,4 +29,3 @@ openssl req -new -x509 -key ca.key -sha256 -subj "/C=US/ST=NJ/O=CA, Inc." -days 
 openssl genrsa -out service.key 4096
 openssl req -new -key service.key -out service.csr -config certificate.conf
 openssl x509 -req -in service.csr -CA ca.cert -CAkey ca.key -CAcreateserial -out service.pem -days 365 -sha256 -extfile certificate.conf -extensions req_ext
-

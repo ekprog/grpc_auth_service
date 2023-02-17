@@ -1,14 +1,16 @@
 package app
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	log "github.com/sirupsen/logrus"
+	"github.com/pkg/errors"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/status"
 	"io/ioutil"
 	"net"
 	"os"
@@ -22,8 +24,10 @@ var (
 // GRPC
 func InitGRPCServer() (*grpc.Server, *runtime.ServeMux, error) {
 
-	tslEnable := os.Getenv("TSL_ENABLE") == "true"
+	var options []grpc.ServerOption
 
+	// TSL
+	tslEnable := os.Getenv("TSL_ENABLE") == "true"
 	if tslEnable {
 		crt := "./cert/service.pem"
 		key := "./cert/service.key"
@@ -53,13 +57,16 @@ func InitGRPCServer() (*grpc.Server, *runtime.ServeMux, error) {
 			Certificates: []tls.Certificate{certificate},
 			ClientCAs:    certPool,
 		})
-
-		grpcServer = grpc.NewServer(grpc.Creds(creds))
-
-	} else {
-		grpcServer = grpc.NewServer()
+		options = append(options, grpc.Creds(creds))
 	}
 
+	// Middleware
+	options = append(options, []grpc.ServerOption{
+		grpc.ChainUnaryInterceptor(errorLogging),
+	}...)
+
+	// Create server
+	grpcServer = grpc.NewServer(options...)
 	if grpcServer == nil {
 		return nil, nil, errors.New("cannot initialize GRPC Server")
 	}
@@ -77,12 +84,12 @@ func RunGRPCServer() {
 
 	lis, err := net.Listen("tcp", "localhost:"+gRPCPort)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("%v", err)
 	}
-	log.Infof("GRPC server listening at %v", lis.Addr())
+	log.Info("GRPC server listening at %v", lis.Addr())
 
 	if err := grpcServer.Serve(lis); err != nil {
-		log.Fatal(err)
+		log.Fatal("%v", err)
 	}
 }
 
@@ -104,4 +111,19 @@ func InitDelivery(d ...DeliveryService) error {
 
 func InitGRPCService[T any](s func(grpc.ServiceRegistrar, T), src T) {
 	s(grpcServer, src)
+}
+
+// Logging interceptor
+
+func errorLogging(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+	// Calls the handler
+	h, err := handler(ctx, req)
+
+	// Log if error
+	if err != nil {
+		log.Error("%v", err)
+		return h, status.Error(codes.Internal, err.Error())
+	}
+
+	return h, nil
 }

@@ -1,12 +1,16 @@
 package app
 
 import (
-	"Portfolio_Nodes/app/logs_hooks"
-	log "github.com/sirupsen/logrus"
+	"auth_service/app/logs_hooks"
+	logrus "github.com/sirupsen/logrus"
 	"os"
 )
 
-func initLogs(rootDir ...string) error {
+var (
+	log Logger
+)
+
+func InitLogs(rootDir ...string) (Logger, error) {
 
 	basePath := "."
 	if len(rootDir) != 0 {
@@ -18,20 +22,58 @@ func initLogs(rootDir ...string) error {
 	//	LogFormat:       "[%lvl%]: %time% - %msg%\n",
 	//})
 
-	log.SetFormatter(&log.TextFormatter{
+	logrusLogger := logrus.New()
+	logrusLogger.SetFormatter(&logrus.TextFormatter{
 		ForceColors:      true,
 		DisableTimestamp: true,
 	})
-	log.SetReportCaller(true)
+	logrusLogger.SetReportCaller(true)
 	if os.Getenv("APP_DEBUG") == "true" {
-		log.SetLevel(log.TraceLevel)
+		logrusLogger.SetLevel(logrus.TraceLevel)
 	} else {
-		log.SetLevel(log.InfoLevel)
+		logrusLogger.SetLevel(logrus.InfoLevel)
 	}
 
 	// hooks
-	log.AddHook(logs_hooks.NewToFileHook(basePath))
-	log.AddHook(logs_hooks.NewToFileErrorHook(basePath))
+	logrusLogger.AddHook(logs_hooks.NewToFileHook(basePath))
+	logrusLogger.AddHook(logs_hooks.NewToFileErrorHook(basePath))
 
-	return nil
+	log = NewDefaultLogger(logrusLogger)
+	return log, nil
+}
+
+type Logger interface {
+	Debug(msg string, args ...interface{})
+	Warn(msg string, args ...interface{})
+	Info(msg string, args ...interface{})
+	Error(msg string, args ...interface{})
+	Fatal(msg string, args ...interface{})
+}
+
+type DefaultLogger struct {
+	logger *logrus.Logger
+}
+
+func NewDefaultLogger(logger *logrus.Logger) *DefaultLogger {
+	return &DefaultLogger{logger: logger}
+}
+
+func (l *DefaultLogger) Debug(msg string, args ...interface{}) {
+	l.logger.Debugf(msg, args...)
+}
+
+func (l *DefaultLogger) Warn(msg string, args ...interface{}) {
+	l.logger.Warnf(msg, args...)
+}
+
+func (l *DefaultLogger) Info(msg string, args ...interface{}) {
+	l.logger.Infof(msg, args...)
+}
+
+func (l *DefaultLogger) Error(msg string, args ...interface{}) {
+	l.logger.Errorf(msg, args...)
+}
+
+func (l *DefaultLogger) Fatal(msg string, args ...interface{}) {
+	l.logger.Fatalf(msg, args...)
 }

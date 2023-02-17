@@ -1,24 +1,32 @@
 package bootstrap
 
 import (
-	"Portfolio_Nodes/app"
-	"Portfolio_Nodes/delivery/grpc_delivery"
-	"Portfolio_Nodes/interactors"
-	"Portfolio_Nodes/repos"
+	"auth_service/app"
+	"auth_service/delivery"
+	"auth_service/interactors"
+	"auth_service/repos"
 	"database/sql"
-	"go.uber.org/dig"
 )
 
-func injectDependencies(db *sql.DB) error {
+func injectDependencies(db *sql.DB, logger app.Logger) error {
 
 	// DI Auto example
 	//diObj := dig.New()
-	//err := diObj.Provide(func() *sql.DB {
-	//	return db
-	//})
-	//if err != nil {
+
+	// logger
+	//if err := diObj.Provide(func() app.Logger {
+	//	return logger
+	//}); err != nil {
 	//	return err
 	//}
+	//
+	//// db
+	//if err := diObj.Provide(func() *sql.DB {
+	//	return db
+	//}); err != nil {
+	//	return err
+	//}
+
 	//
 	//err = provide(diObj,
 	//	repos.NewUsersRepo,
@@ -31,12 +39,12 @@ func injectDependencies(db *sql.DB) error {
 	//}
 
 	// DI Manual
-	usersRepo := repos.NewUsersRepo(db)
-	userTokensRepo := repos.NewUserTokensRepo(db)
-	authUCase := interactors.NewAuthUCase(usersRepo, userTokensRepo)
+	usersRepo := repos.NewUsersRepo(logger, db)
+	userTokensRepo := repos.NewUserTokensRepo(logger, db)
+	authUCase := interactors.NewAuthUCase(logger, usersRepo, userTokensRepo)
 
 	// Delivery Init
-	authDelivery := grpc_delivery.NewAuthDeliveryService(authUCase)
+	authDelivery := delivery.NewAuthDeliveryService(logger, authUCase)
 
 	err := app.InitDelivery(authDelivery)
 	if err != nil {
@@ -45,11 +53,11 @@ func injectDependencies(db *sql.DB) error {
 	return nil
 }
 
-func provide(diObj *dig.Container, list ...interface{}) error {
-	for _, p := range list {
-		if err := diObj.Provide(p); err != nil {
-			return err
-		}
-	}
-	return nil
-}
+//func provide(diObj *dig.Container, list ...interface{}) error {
+//	for _, p := range list {
+//		if err := diObj.Provide(p); err != nil {
+//			return err
+//		}
+//	}
+//	return nil
+//}

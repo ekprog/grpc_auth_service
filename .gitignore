@@ -1,7 +1,7 @@
 .env
 ./logs/*
-./docs/**/*
 ./cert/ca.*
 ./cert/service.*
-/pkg/
+/pkg
+/pkg/**/*
 .idea

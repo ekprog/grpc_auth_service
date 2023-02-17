@@ -1,14 +1,20 @@
 package bootstrap
 
 import (
-	"Portfolio_Nodes/app"
-	"Portfolio_Nodes/tools"
+	"auth_service/app"
+	"auth_service/tools"
 )
 
 func Run(rootPath ...string) error {
 
-	// ENV, LOGS, etc
+	// ENV, etc
 	err := app.InitApp(rootPath...)
+	if err != nil {
+		return err
+	}
+
+	// Logger
+	logger, err := app.InitLogs(rootPath...)
 	if err != nil {
 		return err
 	}
@@ -18,6 +24,8 @@ func Run(rootPath ...string) error {
 	if err != nil {
 		return err
 	}
+
+	// Migrations
 	err = app.RunMigrations(rootPath...)
 	if err != nil {
 		return err
@@ -29,13 +37,14 @@ func Run(rootPath ...string) error {
 		return err
 	}
 
+	// gRPC
 	_, _, err = app.InitGRPCServer()
 	if err != nil {
 		return err
 	}
 
 	// DI
-	if err := injectDependencies(db); err != nil {
+	if err := injectDependencies(db, logger); err != nil {
 		return err
 	}
 

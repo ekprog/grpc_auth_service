@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+option go_package = "pb/api";
+
+import "api/app.proto";
+import "api/auth_message.proto";
+
+// REGISTER
+
+message RegisterRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message RegisterResponse {
+  StatusResponse status = 1;
+}
+
+// LOGIN
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  StatusResponse status = 1;
+  JWTAccess jwt_access = 2;
+}
+
+// REVOKE
+
+message RevokeRequest {
+  string access_token = 1;
+}
+
+message RevokeResponse {
+  StatusResponse status = 1;
+}
+
+// REFRESH
+
+message RefreshRequest {
+  string refresh_token = 1;
+}
+
+message RefreshResponse {
+  StatusResponse status = 1;
+  JWTAccess jwt_access = 2;
+}
+
+// VERIFY
+
+message VerifyRequest {
+  string access_token = 1;
+}
+
+message VerifyResponse {
+  StatusResponse status = 1;
+  User user = 2;
+}

@@ -1,20 +1,20 @@
 package tests
 
 import (
-	"Portfolio_Nodes/tools"
+	"auth_service/tools"
+	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
 
 func TestJwt(t *testing.T) {
 
-	userId := int64(5)
-
-	tokenString, _, err := tools.GenerateJWT(userId)
+	paidUUID := uuid.NewV4().String()
+	jwtAccess, err := tools.GenerateJWT(paidUUID)
 	require.NoError(t, err, "should be success token generation")
 
-	isValid, userIdV, err := tools.VerifyJWT(tokenString)
+	isValid, paidUUIDV, err := tools.VerifyJWT(jwtAccess.AccessToken)
 	require.NoError(t, err, "should be success token verification")
 	require.Equal(t, isValid, true, "should be valid token")
-	require.Equal(t, userId, userIdV, "should be equal userId's")
+	require.Equal(t, paidUUID, paidUUIDV, "should be equal paidUUID's")
 }

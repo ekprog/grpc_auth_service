@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+option go_package = "pb/api";
+
+import "google/protobuf/timestamp.proto";
+
+
+message User {
+  int64 id = 1;
+  string username = 2;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message JWTAccess {
+  string access_token = 1;
+  string refresh_token = 2;
+  google.protobuf.Timestamp access_expired_at = 3;
+  google.protobuf.Timestamp refresh_expired_at = 4;
+}

@@ -1,7 +1,8 @@
 package tests
 
 import (
-	pb "Portfolio_Nodes/pkg/pb/api"
+	"auth_service/domain"
+	pb "auth_service/pkg/pb/api"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -81,18 +82,20 @@ func TestAuth_RegisterGRPC(t *testing.T) {
 	c := pb.NewAuthServiceClient(conn)
 
 	// Contact the server and print out its response.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 1000*time.Second)
 	defer cancel()
 
 	// Credentials
 	testUsername, testPassword, err := generateCredentials()
 	require.NoError(t, err, "should be success credentials generation process")
 
-	_, err = c.Register(ctx, &pb.RegisterRequest{
+	res, err := c.Register(ctx, &pb.RegisterRequest{
 		Username: testUsername,
 		Password: testPassword,
 	})
+	log.Infof("%v", res)
 	require.NoError(t, err, "should be success register ucase")
+	require.Equal(t, res.Status.Code, domain.Success, "should be success status code")
 }
 
 func TestAuth_LoginGRPC(t *testing.T) {
@@ -109,18 +112,21 @@ func TestAuth_LoginGRPC(t *testing.T) {
 	testUsername, testPassword, err := generateCredentials()
 	require.NoError(t, err, "should be success credentials generation process")
 
-	_, err = c.Register(ctx, &pb.RegisterRequest{
+	registerRes, err := c.Register(ctx, &pb.RegisterRequest{
 		Username: testUsername,
 		Password: testPassword,
 	})
 	require.NoError(t, err, "should be success register ucase")
+	require.Equal(t, registerRes.Status.Code, domain.Success, "should be success status code with registration")
 
 	r, err := c.Login(ctx, &pb.LoginRequest{
 		Username: testUsername,
 		Password: testPassword,
 	})
 	require.NoError(t, err, "should be success login ucase")
-	require.NotEmpty(t, r.AccessToken, "access token should not be empty")
+	require.Equal(t, r.Status.Code, domain.Success, "should be success status code with login")
+	require.NotEmpty(t, r.JwtAccess.AccessToken, "access token should not be empty")
+	require.NotEmpty(t, r.JwtAccess.RefreshExpiredAt, "access token should not be empty")
 
 }
 
@@ -137,21 +143,67 @@ func TestAuth_ValidateGRPC(t *testing.T) {
 	testUsername, testPassword, err := generateCredentials()
 	require.NoError(t, err, "should be success credentials generation process")
 
-	_, err = c.Register(ctx, &pb.RegisterRequest{
+	registerRes, err := c.Register(ctx, &pb.RegisterRequest{
 		Username: testUsername,
 		Password: testPassword,
 	})
 	require.NoError(t, err, "should be success register ucase")
+	require.Equal(t, registerRes.Status.Code, domain.Success, "should be success status code with registration")
 
 	r, err := c.Login(ctx, &pb.LoginRequest{
 		Username: testUsername,
 		Password: testPassword,
 	})
 	require.NoError(t, err, "should be success login ucase")
+	require.Equal(t, r.Status.Code, domain.Success, "should be success status code with login")
 
-	token := r.AccessToken
+	token := r.JwtAccess.AccessToken
 	verify, err := c.Verify(ctx, &pb.VerifyRequest{AccessToken: token})
 	require.NoError(t, err, "should be success verify ucase")
-	require.Equal(t, verify.Status, true, "status should be True")
+	require.Equal(t, verify.Status.Code, domain.Success, "status should be success")
 	require.Equal(t, verify.User.Username, testUsername, "usernames after verification should be the same")
+}
+
+func TestAuth_RevokeGRPC(t *testing.T) {
+	conn := makeClient()
+	defer conn.Close()
+	c := pb.NewAuthServiceClient(conn)
+
+	// Contact the server and print out its response.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Credentials
+	testUsername, testPassword, err := generateCredentials()
+	require.NoError(t, err, "should be success credentials generation process")
+
+	registerRes, err := c.Register(ctx, &pb.RegisterRequest{
+		Username: testUsername,
+		Password: testPassword,
+	})
+	require.NoError(t, err, "should be success register ucase")
+	require.Equal(t, registerRes.Status.Code, domain.Success, "should be success status code with registration")
+
+	r, err := c.Login(ctx, &pb.LoginRequest{
+		Username: testUsername,
+		Password: testPassword,
+	})
+	require.NoError(t, err, "should be success login ucase")
+	require.Equal(t, r.Status.Code, domain.Success, "should be success status code with login")
+
+	token := r.JwtAccess.AccessToken
+	verify, err := c.Verify(ctx, &pb.VerifyRequest{AccessToken: token})
+	require.NoError(t, err, "should be success verify ucase")
+	require.Equal(t, verify.Status.Code, domain.Success, "status should be success with verifying")
+	require.Equal(t, verify.User.Username, testUsername, "usernames after verification should be the same")
+
+	// Revoking
+	revokeRes, err := c.Revoke(ctx, &pb.RevokeRequest{AccessToken: token})
+	require.NoError(t, err, "should be success revoke ucase")
+	require.Equal(t, revokeRes.Status.Code, domain.Success, "status should be success with revoking")
+
+	// Again verify
+	verifyRes, err := c.Verify(ctx, &pb.VerifyRequest{AccessToken: token})
+	require.NoError(t, err, "should be success verify ucase")
+	require.Equal(t, verifyRes.Status.Code, domain.IncorrectToken, "token should be incorrect after revoking")
 }

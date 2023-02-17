@@ -5,7 +5,6 @@ import (
 	"fmt"
 	_ "github.com/lib/pq"
 	"github.com/pressly/goose"
-	log "github.com/sirupsen/logrus"
 	"os"
 )
 
@@ -28,7 +27,7 @@ func InitDatabase() (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("Database connection was created")
+	log.Info("Database connection was created")
 
 	db = localDB
 

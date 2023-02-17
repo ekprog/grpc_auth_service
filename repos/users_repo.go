@@ -1,16 +1,21 @@
 package repos
 
 import (
-	"Portfolio_Nodes/domain"
+	"auth_service/app"
+	"auth_service/domain"
 	"database/sql"
 )
 
 type UsersRepo struct {
-	db *sql.DB
+	log app.Logger
+	db  *sql.DB
 }
 
-func NewUsersRepo(db *sql.DB) domain.UsersRepository {
-	return &UsersRepo{db: db}
+func NewUsersRepo(log app.Logger, db *sql.DB) domain.UsersRepository {
+	return &UsersRepo{
+		db:  db,
+		log: log,
+	}
 }
 
 func (r *UsersRepo) Insert(user *domain.User) error {

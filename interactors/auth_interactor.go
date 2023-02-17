@@ -1,32 +1,43 @@
 package interactors
 
 import (
-	"Portfolio_Nodes/app"
-	"Portfolio_Nodes/domain"
-	"Portfolio_Nodes/tools"
+	"auth_service/app"
+	"auth_service/domain"
+	"auth_service/tools"
+	"github.com/pkg/errors"
+	uuid "github.com/satori/go.uuid"
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"time"
 )
 
 type AuthInteractor struct {
+	log        app.Logger
 	usersRepo  domain.UsersRepository
 	tokensRepo domain.UserTokensRepository
 }
 
-func NewAuthUCase(usersRepo domain.UsersRepository, tokensRepo domain.UserTokensRepository) domain.AuthInteractor {
-	return &AuthInteractor{usersRepo: usersRepo, tokensRepo: tokensRepo}
+func NewAuthUCase(log app.Logger, usersRepo domain.UsersRepository, tokensRepo domain.UserTokensRepository) domain.AuthInteractor {
+	return &AuthInteractor{
+		log:        log,
+		usersRepo:  usersRepo,
+		tokensRepo: tokensRepo,
+	}
 }
 
-func (i *AuthInteractor) invokeNewToken(userId int64) (*domain.UserToken, error) {
-	tokenString, expired, err := tools.GenerateJWT(userId)
+func (i *AuthInteractor) generateNewJWTPair(userId int64) (*domain.UserToken, error) {
+
+	pairUUID := uuid.NewV4().String()
+	jwtAccess, err := tools.GenerateJWT(pairUUID)
 	if err != nil {
 		return nil, err
 	}
 	token := &domain.UserToken{
-		UserId:    userId,
-		Token:     tokenString,
-		ExpiredAt: expired,
+		UserId:                userId,
+		PairUUID:              pairUUID,
+		AccessToken:           jwtAccess.AccessToken,
+		RefreshToken:          jwtAccess.RefreshToken,
+		AccessTokenExpiredAt:  jwtAccess.AccessTokenExpired,
+		RefreshTokenExpiredAt: jwtAccess.RefreshTokenExpired,
 	}
 	err = i.tokensRepo.Insert(token)
 	if err != nil {
@@ -35,25 +46,24 @@ func (i *AuthInteractor) invokeNewToken(userId int64) (*domain.UserToken, error)
 	return token, nil
 }
 
-func (i *AuthInteractor) Register(username, password string) error {
-
-	if username == "" || password == "" {
-		return app.UCaseError("validation_error")
-	}
+func (i *AuthInteractor) Register(username, password string) (domain.RegisterResponse, error) {
 
 	// check exists
 	existsUser, err := i.usersRepo.FindByUsername(username)
 	if err != nil {
-		return err
+		return domain.RegisterResponse{}, errors.Wrap(err, "Cannot find user by username")
 	}
 	if existsUser != nil {
-		return status.Error(codes.AlreadyExists, "username has already taken")
+		i.log.Debug("Incorrect credentials: %s@%s", username, password)
+		return domain.RegisterResponse{
+			StatusCode: domain.AlreadyExists,
+		}, nil
 	}
 
 	// make password hash
 	pwdHash, err := tools.GenerateHashPassword(password)
 	if err != nil {
-		return err
+		return domain.RegisterResponse{}, errors.Wrap(err, "Cannot generate pws hash")
 	}
 
 	// create user
@@ -63,68 +73,197 @@ func (i *AuthInteractor) Register(username, password string) error {
 	}
 	err = i.usersRepo.Insert(user)
 	if err != nil {
-		return err
+		return domain.RegisterResponse{}, errors.Wrap(err, "Cannot insert user in DB")
 	}
 
 	log.Infof("Register successful. Credentials: %s - %s", username, pwdHash)
 
-	return nil
+	return domain.RegisterResponse{
+		StatusCode: domain.Success,
+	}, nil
 }
 
-func (i *AuthInteractor) Login(username, password string) (*domain.UserToken, error) {
+func (i *AuthInteractor) Login(username, password string) (domain.LoginResponse, error) {
 
+	// Check user exists
 	user, err := i.usersRepo.FindByUsername(username)
 	if err != nil {
-		return nil, err
+		return domain.LoginResponse{}, errors.Wrap(err, "Cannot check user existing")
 	}
 
+	// Check password
 	isPassValid := tools.CheckPasswordHash(password, user.PwdHash)
 	if !isPassValid {
-		return nil, app.UCaseError("incorrect_credentials")
+		i.log.Debug("Incorrect credentials: %s@%s", username, password)
+		return domain.LoginResponse{
+			StatusCode: domain.IncorrectCredentials,
+		}, nil
 	}
 
-	// generate token
-	token, err := i.invokeNewToken(user.Id)
+	// Generating new token
+	jwtAccess, err := i.generateNewJWTPair(user.Id)
 	if err != nil {
-		return nil, err
+		return domain.LoginResponse{}, errors.Wrap(err, "Cannot generate jwt pair")
 	}
 
-	log.Infof("Login successful. Token = %s", token.Token)
+	log.Infof("Login successful. Token = %s", jwtAccess.AccessToken)
 
-	return token, nil
+	return domain.LoginResponse{
+		StatusCode: domain.Success,
+		UserToken:  jwtAccess,
+	}, nil
 }
 
-func (i *AuthInteractor) ValidateAndExtract(tokenString string) (*domain.User, error) {
-	// Find valid token from db
-	_, err := i.tokensRepo.FindValid(tokenString)
+func (i *AuthInteractor) Revoke(token string) (domain.RevokeResponse, error) {
+
+	// Verify refresh token and get pairUUID
+	ok, pairUUID, err := tools.VerifyJWT(token)
 	if err != nil {
-		return nil, err
+		return domain.RevokeResponse{}, errors.Wrap(err, "Error while verifying access token")
 	}
-	err = i.tokensRepo.UpdateTime(tokenString)
-	if err != nil {
-		log.Errorf("cannot update updated_at at token (%s)", tokenString)
-		// no need return (not critical error)
+	if !ok {
+		i.log.Debug("Error while verifying access token: %s", err)
+		return domain.RevokeResponse{
+			StatusCode: domain.IncorrectToken,
+		}, nil
 	}
 
-	// Verify token
-	isValid, userId, err := tools.VerifyJWT(tokenString)
+	// Find valid token from db (if it is refresh token and not expired)
+	jwtAccess, err := i.tokensRepo.FindValidPair(pairUUID)
 	if err != nil {
-		return nil, err
+		return domain.RevokeResponse{}, errors.Wrap(err, "Incorrect pair UUID")
 	}
-	if !isValid {
-		return nil, app.UCaseError("incorrect_credentials")
+	// JWT was created but where is row in DB ?
+	if jwtAccess == nil {
+		i.log.Warn("JWT pair was not found in database", err)
+		return domain.RevokeResponse{
+			StatusCode: domain.IncorrectToken,
+		}, nil
+	}
+	if token != jwtAccess.AccessToken {
+		return domain.RevokeResponse{}, errors.New("Need pass refresh token")
+	}
+	// Not necessary because tools.VerifyJWT already checked expiration
+	if time.Now().After(jwtAccess.AccessTokenExpiredAt) {
+		return domain.RevokeResponse{}, errors.New("Access token is expired")
 	}
 
-	user, err := i.usersRepo.FindById(userId)
+	// Updating updated_at field
+	err = i.tokensRepo.RevokePair(pairUUID)
 	if err != nil {
-		return nil, err
-	}
-	if user == nil {
-		log.Errorf("cannot find user after getting userId (%d) from token.", userId)
-		return nil, app.UCaseError("incorrect_credentials")
+		return domain.RevokeResponse{}, errors.New("Cannot revoke token")
 	}
 
-	log.Infof("Validate successful. UserId=%d, Username=%s", user.Id, user.Username)
+	return domain.RevokeResponse{
+		StatusCode: domain.Success,
+	}, nil
+}
 
-	return user, nil
+func (i *AuthInteractor) RefreshToken(refreshToken string) (domain.RefreshTokenResponse, error) {
+
+	// Verify refresh token and get pairUUID
+	ok, pairUUID, err := tools.VerifyJWT(refreshToken)
+	if err != nil {
+		return domain.RefreshTokenResponse{}, errors.Wrap(err, "Error while verifying refresh token")
+	}
+	if !ok {
+		i.log.Debug("Error while verifying refresh token: %s", err)
+		return domain.RefreshTokenResponse{
+			StatusCode: domain.IncorrectToken,
+		}, nil
+	}
+
+	// Find valid token from db (if it is refresh token and not expired)
+	jwtAccess, err := i.tokensRepo.FindValidPair(pairUUID)
+	if err != nil {
+		return domain.RefreshTokenResponse{}, errors.Wrap(err, "Incorrect pair UUID")
+	}
+
+	// JWT was created but where is row in DB ?
+	if jwtAccess == nil {
+		i.log.Warn("JWT pair was not found in database", err)
+		return domain.RefreshTokenResponse{
+			StatusCode: domain.IncorrectToken,
+		}, nil
+	}
+	if refreshToken != jwtAccess.RefreshToken {
+		return domain.RefreshTokenResponse{}, errors.New("Need pass refresh token")
+	}
+	// Not necessary because tools.VerifyJWT already checked expiration
+	if time.Now().After(jwtAccess.RefreshTokenExpiredAt) {
+		return domain.RefreshTokenResponse{}, errors.New("Refresh token is expired")
+	}
+
+	// Making paid invalid
+	err = i.tokensRepo.RevokePair(jwtAccess.PairUUID)
+	if err != nil {
+		return domain.RefreshTokenResponse{}, errors.Wrap(err, "Cannot revoke access token")
+	}
+
+	// Generating token
+	jwtAccess, err = i.generateNewJWTPair(jwtAccess.UserId)
+	if err != nil {
+		return domain.RefreshTokenResponse{}, errors.Wrap(err, "Cannot generate new jwt pair")
+	}
+
+	// Log
+	i.log.Info("Refreshing token successful. PairUUID=%d", jwtAccess.PairUUID)
+
+	return domain.RefreshTokenResponse{
+		StatusCode: domain.Success,
+		UserToken:  jwtAccess,
+	}, nil
+}
+
+func (i *AuthInteractor) Extract(accessToken string) (domain.ExtractResponse, error) {
+
+	// Verify refresh token and get pairUUID
+	ok, pairUUID, err := tools.VerifyJWT(accessToken)
+	if err != nil {
+		return domain.ExtractResponse{}, errors.Wrap(err, "Error while verifying access token")
+	}
+	if !ok {
+		i.log.Debug("Error while verifying access token: %s", err)
+		return domain.ExtractResponse{
+			StatusCode: domain.IncorrectToken,
+		}, nil
+	}
+
+	// Find valid token from db (if it is refresh token and not expired)
+	jwtAccess, err := i.tokensRepo.FindValidPair(pairUUID)
+	if err != nil {
+		return domain.ExtractResponse{}, errors.Wrap(err, "Incorrect pair UUID")
+	}
+	// JWT was created but where is row in DB ?
+	if jwtAccess == nil {
+		i.log.Warn("JWT pair was not found in database", err)
+		return domain.ExtractResponse{
+			StatusCode: domain.IncorrectToken,
+		}, nil
+	}
+	if accessToken != jwtAccess.AccessToken {
+		return domain.ExtractResponse{}, errors.New("Need pass refresh token")
+	}
+	// Not necessary because tools.VerifyJWT already checked expiration
+	if time.Now().After(jwtAccess.AccessTokenExpiredAt) {
+		return domain.ExtractResponse{}, errors.New("Access token is expired")
+	}
+
+	// Updating updated_at field
+	err = i.tokensRepo.UpdateTime(pairUUID)
+	if err != nil {
+		i.log.Warn("Cannot update time for jwt pair")
+		// No need to return (not critical)
+	}
+
+	// Extract
+	user, err := i.usersRepo.FindById(jwtAccess.UserId)
+	if err != nil {
+		return domain.ExtractResponse{}, errors.Wrap(err, "Error while finding user in database")
+	}
+
+	return domain.ExtractResponse{
+		StatusCode: domain.Success,
+		User:       user,
+	}, nil
 }
